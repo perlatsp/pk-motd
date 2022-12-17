@@ -1,0 +1,172 @@
+#!/bin/bash
+# Variables
+#colors
+white="\e[39m"
+green="\e[1;32m"
+yellow="\033[0;33m"
+red="\e[1;31m"
+dim="\e[2m"
+undim="\e[0m"
+
+ip_address=$(curl -s ipinfo.io/ip);
+separator=----------------------------------------
+currentTime=$(date +%s)
+SERVICES=("fail2ban" "ufw" "mysql" "nginx" "php7.4-fpm" "php8.0-fpm");
+
+
+
+# Server Info START
+# get load averages
+IFS=" " read LOAD1 LOAD5 LOAD15 <<<$(cat /proc/loadavg | awk '{ print $1,$2,$3 }')
+# get free memory
+IFS=" " read USED AVAIL TOTAL <<<$(free -htm | grep "Mem" | awk {'print $3,$7,$2'})
+# get processes
+PROCESS=`ps -eo user=|sort|uniq -c | awk '{ print $2 " " $1 }'`
+PROCESS_ALL=`echo "$PROCESS"| awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
+PROCESS_ROOT=`echo "$PROCESS"| grep root | awk {'print $2'}`
+PROCESS_USER=`echo "$PROCESS"| grep -v root | awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
+# get processors
+PROCESSOR_NAME=`grep "model name" /proc/cpuinfo | cut -d ' ' -f3- | awk {'print $0'} | head -1`
+PROCESSOR_COUNT=`grep -ioP 'processor\t:' /proc/cpuinfo | wc -l`
+
+
+
+echo -e "
+${green}Server System info:
+$white  Distro......:  $white`cat /etc/*release | grep "PRETTY_NAME" | cut -d "=" -f 2- | sed 's/"//g'`
+$white  Kernel......:  $white`uname -sr`
+$white  Uptime......:  $white`uptime -p`
+$white  Load........: $green $LOAD1 $white (1m), $green $LOAD5 $white (5m), $green $LOAD15 $white (15m)
+$white  Processes...: $white $green $PROCESS_ROOT $white (root), $green $PROCESS_USER $white (user), $green $PROCESS_ALL $whi>
+$white  CPU.........:  $white$PROCESSOR_NAME ($green $PROCESSOR_COUNT $white vCPU)
+$white  Memory......: $green $USED $white used, $green $AVAIL $white avail, $green $TOTAL $white total $white
+$white  IP Address..: $ip_address"
+
+# Server Info END
+
+
+
+# config
+bar_width=30
+printf "\n";
+printf "$separator$separator"
+
+
+
+# disk usage: ignore zfs, squashfs & tmpfs
+mapfile -t dfs < <(df -H -x overlay -x fuse -x zfs -x squashfs -x tmpfs -x devtmpfs --output=target,pcent,size | tail -n+2)
+printf "\n${green}Disk usage:${undim}\n"
+
+for line in "${dfs[@]}"; do
+    # get disk usage
+    usage=$(echo "$line" | awk '{print $2}' | sed 's/%//')
+    used_width=$((($usage*$bar_width)/100))
+    # if less than 50% show green if between 51 & 79 is yellow, 80 and over is red
+    if [ "${usage}" -le 50 ]; then
+        color=$green
+    elif [ "${usage}" -ge 80 ]; then
+        color=$red
+    else
+        color=$yellow
+    fi
+
+    # print green/red bar until used_width
+    bar="[${color}"
+    for ((i=0; i<$used_width; i++)); do
+        bar+="="
+    done
+    bar+="|"
+    # print dimmmed bar until end
+    bar+="${white}${dim}"
+    for ((i=$used_width; i<$bar_width; i++)); do
+        bar+="="
+    done
+    bar+="${undim}]"
+    # print usage line & bar
+    echo "${line}" | awk '{ printf("%-31s%+3s used out of %+4s\n", $1, $2, $3); }' | sed -e 's/^/  /'
+    echo -e "${bar}" | sed -e 's/^/  /'
+done
+
+echo  "$separator$separator"
+#Updates available START
+printf "\nUpdates available on $(hostname):\n"
+stamp="/var/lib/update-notifier/updates-available"
+
+[ ! -r "$stamp" ] || cat "$stamp"
+
+find $stamp -newermt 'now-7 days' 2> /dev/null | grep -q -m 1 '.' || /usr/share/update-notifier/notify-updates-outdated
+echo  "$separator$separator"
+#Updates available END
+
+
+#--------------- Services Status section -------------------
+
+# SERVICES STATUS START
+printf "\n";
+echo  "$separator$separator"
+# sort services
+IFS=$'\n' SERVICES=($(sort <<<"${SERVICES[*]}"))
+unset IFS
+
+printf "\nServices Status on $(hostname):\n"
+printf "${white}+--------- SERVICE ------------+-- STATUS --+---------- UPTIME ----------------- ${white}\n"
+
+# get status of all services
+for service in "${SERVICES[@]}"; do
+
+    status=$(systemctl is-active "$service")
+    uptime=$(systemctl show "$service" --property=ActiveEnterTimestamp | cut -d"=" -f2)
+    service=$(echo ${service} | sed -e 's/\.service//g' | sed -e 's/@server//g')
+
+    if [[ $status == "inactive" ]]; then
+        printf "${yellow}%-30s ${undim}| ${red} ● %-10s ${undim}| %s\n" "${service^}" "${status^}" "$uptime"
+    else
+        printf "${yellow}%-30s ${undim}| ${green} ● %-10s ${undim}| %s\n" "${service^}" "${status^}" "$uptime"
+    fi
+done
+
+printf "\n"
+
+# SERVICES STATUS END
+
+#--------------- Domain Certificates section -------------------
+
+# SSL CHECKS  START
+domains=(`ls /var/www | grep -v html`);
+if [ -n "$domains" ]; then
+
+    printf "\n ( ${#domains[@]} ) SSL Certificates:\n"
+    printf "${white}+--------- WEBSITE ------------+-- STATUS --+---------- EXPIRES ----------------- ${white}\n"
+    for domain in "${domains[@]}"; do
+        certTime=$(openssl s_client -connect ${domain}:443 < /dev/null 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+        certLineTime=$(date -d "${certTime}" +"%a %b %d %Y")
+
+        certTimestamp=$(date -d "${certTime}" +%s)
+        if [ "${certTimestamp}" -ge "${currentTime}" ]; then
+            printf "${yellow}%-30s ${undim}| ${green} ● Active ${undim}| %s\n" "$domain" "$certLineTime"
+        else
+            printf "${yellow}%-30s ${undim}| ${red} ▲ Expired ${undim}| %s\n" "$domain" "$certLineTime"
+        fi
+    done
+fi
+#SSL Checks END
+
+#--------------- Logged in users section -------------------
+
+#Logged in Users START
+printf "\n"
+echo  "$separator$separator"
+printf "${yellow}Other logged sessions:${undim}\n"
+
+w | tail -n +2
+
+printf "\n"
+#Logged in Users END
+
+echo  "$separator$separator"
+
+#--------------- Joke section -------------------
+#Joke section START
+the_joke=$(curl -s https://v2.jokeapi.dev/joke/Programming,Pun?format=txt)
+printf "Welcome to $(hostname), here is a joke for you: \n ${yellow}${the_joke}${undim} \n";
+#Joke section END
