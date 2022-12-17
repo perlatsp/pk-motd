@@ -4,7 +4,7 @@
 clear
 install_pk_motd(){
     echo "Downloading script from github..."
-    wget -q -O custom-welcome-message.txt https://raw.githubusercontent.com/perlatsp/pk-motd/custom-welcome-message.txt
+    wget -q -O custom-welcome-message.txt https://raw.githubusercontent.com/perlatsp/pk-motd/main/custom-welcome-message.txt
     echo "Moving custom-welcome-message to /etc/update-motd.d/custom-welcome-message ...";
     mv custom-welcome-message.sh /etc/update-motd.d/custom-welcome-message
     echo "Setting permissions..."
