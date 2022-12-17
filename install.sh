@@ -8,6 +8,6 @@ wget -q -O custom-welcome-message.txt https://raw.githubusercontent.com/perlatsp
 echo "Moving custom-welcome-message to /etc/update-motd.d/custom-welcome-message ...";
 mv custom-welcome-message.sh /etc/update-motd.d/custom-welcome-message
 echo "Setting permissions..."
-sudo chmod -x etc/update-motd.d/*
+sudo chmod -x /etc/update-motd.d/*
 sudo chmod 755 /etc/update-motd.d/custom-welcome-message
 echo "Finished. Logout and login again to see the new welcome message!"
