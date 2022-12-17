@@ -20,4 +20,3 @@ select answer in "Yes" "No"; do
         No ) echo "OK 🙁, bye now"; exit;;
     esac
 done
-exit;
