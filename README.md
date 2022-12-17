@@ -10,7 +10,7 @@ MOTD scripts for a typical LEMP Server and not only.
 # How To Install
 
 SSh into the server you want to install and type the following command
-> `wget -O - https://raw.githubusercontent.com/perlatsp/pk-motd/install.sh | bash`
+> `wget -O - https://raw.githubusercontent.com/perlatsp/pk-motd/main/install.sh | bash`
 
 OR manually install it:
 - Download `custom-welcome-message.txt'
